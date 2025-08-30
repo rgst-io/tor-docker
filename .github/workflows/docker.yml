@@ -121,8 +121,9 @@ jobs:
         env:
           FULL_DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TOR_VERSION }}
           DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          RUNNER_TEMP: ${{ runner.temp }}
         run: |-
-          readarray -t digests < <(printf "$DOCKER_IMAGE@sha256:%s\n" *)
+          readarray -t digests < <(find "$RUNNER_TEMP/digests" -type f | xargs -n1 basename | xargs printf "$DOCKER_IMAGE@sha256:%s\n")
           docker buildx imagetools create -t "$FULL_DOCKER_IMAGE" "${digests[@]}"
           docker buildx imagetools inspect "$FULL_DOCKER_IMAGE"
           echo "digest=$(docker buildx imagetools inspect "$FULL_DOCKER_IMAGE" | grep "Digest:" | awk '{ print $2 }')" >"$GITHUB_OUTPUT"
