@@ -114,7 +114,7 @@ jobs:
           echo "TIMESTAMP=$(git log -1 --pretty=%ct)" >>"$GITHUB_ENV"
           echo "TOR_VERSION=$(tr -d '\n' <VERSION)" >>"$GITHUB_ENV"
       - name: Download digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: ${{ runner.temp }}/digests
           pattern: digests-*
