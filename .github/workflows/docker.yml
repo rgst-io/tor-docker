@@ -5,24 +5,45 @@ on:
     branches: [main]
   pull_request: {}
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    name: build (${{ matrix.platform }})
+    runs-on: ubuntu-24.04${{ matrix.platform == 'linux/arm64' && '-arm' || ''}}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
     permissions:
       id-token: write
       packages: write
       contents: read
       attestations: write
     env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
+      PLATFORM: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Set up QEMU
-        id: qemu
-        uses: docker/setup-qemu-action@v3
+      - name: Build time variables
+        run: |-
+          echo "TIMESTAMP=$(git log -1 --pretty=%ct)" >>"$GITHUB_ENV"
+          echo "TOR_VERSION=$(tr -d '\n' <VERSION)" >>"$GITHUB_ENV"
+      - name: Skip if already published
+        env:
+          FULL_DOCKER_IMAGE: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TOR_VERSION }}"
+        run: |-
+          echo "Checking if $FULL_DOCKER_IMAGE exists ..."
+          if docker manifest inspect "$FULL_DOCKER_IMAGE" &>/dev/null; then
+            echo "$FULL_DOCKER_IMAGE already exists, skipping build"
+            gh run cancel "$GITHUB_RUN_ID"
+            exit 0
+          fi
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Login to GitHub Container Registry
@@ -31,27 +52,85 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - run: echo "TIMESTAMP=$(git log -1 --pretty=%ct)" >>"$GITHUB_ENV"
-      - run: echo "TOR_VERSION=$(tr -d '\n' <VERSION) >>"$GITHUB_ENV"
+      - name: Download Gentoo
+        run: ./scripts/fetch-gentoo.sh "${PLATFORM##*/}"
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
       - name: Build and push image
         uses: docker/build-push-action@v6
-        id: push
+        id: build
         env:
           SOURCE_DATE_EPOCH: ${{ env.TIMESTAMP }}
         with:
           context: .
-          outputs: type=registry,rewrite-timestamp=true
           sbom: true
-          push: ${{ github.event_name != 'pull_request' }}
-          provenance: "max"
+          provenance: mode=max
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: TOR_VERSION=${{ env.TOR_VERSION }}
-          platforms: "linux/amd64,linux/arm64"
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TOR_VERSION }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          outputs: type=image,rewrite-timestamp=true,push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'push' }}
+      - name: Export digest
+        run: |-
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+      - name: Escape platform (/ -> -)
+        id: platform
+        run: echo "escaped=${PLATFORM//\//-}" >"$GITHUB_OUTPUT"
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ steps.platform.outputs.escaped }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
       - name: Attest
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         id: attest
         if: ${{ github.event_name == 'push' }}
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  merge:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    needs:
+      - build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Build time variables
+        run: |-
+          echo "TIMESTAMP=$(git log -1 --pretty=%ct)" >>"$GITHUB_ENV"
+          echo "TOR_VERSION=$(tr -d '\n' <VERSION)" >>"$GITHUB_ENV"
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Create manifest
+        id: manifest
+        env:
+          FULL_DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TOR_VERSION }}
+          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |-
+          readarray -t digests < <(printf "$DOCKER_IMAGE@sha256:%s\n" *)
+          docker buildx imagetools create -t "$FULL_DOCKER_IMAGE" "${digests[@]}"
+          docker buildx imagetools inspect "$FULL_DOCKER_IMAGE"
+          echo "digest=$(docker buildx imagetools inspect "$FULL_DOCKER_IMAGE" | grep "Digest:" | awk '{ print $2 }')" >"$GITHUB_OUTPUT"
+      - name: Attest
+        uses: actions/attest-build-provenance@v3
+        id: attest
+        if: ${{ github.event_name == 'push' }}
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
           push-to-registry: true

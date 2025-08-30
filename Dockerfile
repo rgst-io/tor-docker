@@ -1,15 +1,24 @@
 # syntax=docker/dockerfile:1
-FROM gentoo/portage:latest AS portage
-FROM gentoo/stage3:latest AS builder
+FROM scratch AS builder
+
+# Automatically supplied by Docker
+ARG TARGETARCH
+
+# Comes from ./scripts/fetch-gentoo.sh
+ADD ./.gentoo-sources/$TARGETARCH.tar /
 
 # https://gitlab.torproject.org/tpo/core/tor/-/tags
 ARG TOR_VERSION
 
-COPY --from=portage /var/db/repos/gentoo /var/db/repos/gentoo
+SHELL ["/usr/bin/bash", "-euo", "pipefail", "-c"]
 
+# Download latest portage sources
 RUN <<EOF
-  set -euo pipefail
-  
+  mkdir -p /var/db/repos/gentoo
+  emerge-webrsync
+EOF
+
+RUN <<EOF  
   export MAKEOPTS="-j$(nproc)"
   export EMERGE_DEFAULT_OPTS="--jobs 2"
   export USE="${USE:-""} hardened zstd static-libs"
@@ -31,6 +40,6 @@ RUN <<EOF
   strip /usr/bin/tor
 EOF
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM scratch
 COPY --from=builder /usr/bin/tor /usr/bin/tor
 ENTRYPOINT ["/usr/bin/tor"]

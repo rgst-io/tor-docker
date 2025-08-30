@@ -1,4 +1,17 @@
 {
+  // Validate with:
+  //   npx --yes --package renovate -- renovate-config-validator --strict
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:recommended"],
+  customManagers: [
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^VERSION$/"],
+      matchStrings: ["^(?<currentValue>.+)$"],
+      datasourceTemplate: "gitlab-releases",
+      depNameTemplate: "tpo/core/tor",
+      registryUrlTemplate: "https://gitlab.torproject.org",
+      extractVersionTemplate: "^tor-(?<version>.+)$",
+    },
+  ],
 }
