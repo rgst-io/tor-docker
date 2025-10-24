@@ -81,7 +81,7 @@ jobs:
         id: platform
         run: echo "escaped=${PLATFORM//\//-}" >"$GITHUB_OUTPUT"
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: digests-${{ steps.platform.outputs.escaped }}
           path: ${{ runner.temp }}/digests/*
@@ -114,7 +114,7 @@ jobs:
           echo "TIMESTAMP=$(git log -1 --pretty=%ct)" >>"$GITHUB_ENV"
           echo "TOR_VERSION=$(tr -d '\n' <VERSION)" >>"$GITHUB_ENV"
       - name: Download digests
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: ${{ runner.temp }}/digests
           pattern: digests-*
