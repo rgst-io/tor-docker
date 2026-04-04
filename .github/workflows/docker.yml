@@ -37,6 +37,7 @@ jobs:
       - name: Skip if already published
         env:
           FULL_DOCKER_IMAGE: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TOR_VERSION }}"
+          GH_TOKEN: ${{ github.token }}
         run: |-
           echo "Checking if $FULL_DOCKER_IMAGE exists ..."
           if docker manifest inspect "$FULL_DOCKER_IMAGE" &>/dev/null; then
