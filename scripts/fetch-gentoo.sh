@@ -10,7 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # curl https://qa-reports.gentoo.org/output/service-keys.gpg | sha512sum | awk '{ print $1 }'
-SIGNATURE_FILE_HASH="21d1c6ccd5c3e82ce4ec2fe4509e072bc1e47d4f16628274d2b508e2d6e111ed0b3b5f7f542ad29d4f58fc0ff475b0d423322de3cad54c0056bf774fed3dffb0"
+SIGNATURE_FILE_HASH="a267deec145a966c286a68068263325097c81877a305164fa2f7bd5bc907fe14ba31b3384c5c0fc72cb367c0784c9ae8717720adfc5f9e15935bc0293d6666b2"
 
 info() {
   echo -e "\033[1;34m[INFO]\033[0m" "$@"
